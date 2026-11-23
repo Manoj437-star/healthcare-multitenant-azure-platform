@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: claims-ingestion-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: claims-ingestion
+    tenant: {{ .Values.tenantId }}
+data:
+  ASPNETCORE_ENVIRONMENT: {{ quote .Values.environment }}
+  EventBus__Provider: {{ quote .Values.config.eventBusProvider }}
+  CosmosDb__DatabaseName: {{ quote .Values.config.databaseName }}
+  EnableSwagger: {{ quote .Values.config.enableSwagger }}
+  Serilog__MinimumLevel__Default: "Information"

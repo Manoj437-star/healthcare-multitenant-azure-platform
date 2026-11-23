@@ -1,0 +1,52 @@
+{
+  "UserConfig": {
+    "Namespaces": [
+      {
+        "Name": "sb-emulator-ns",
+        "Entities": {
+          "Topics": [
+            {
+              "Name": "member-events",
+              "Properties": {
+                "DefaultMessageTimeToLive": "PT1H"
+              },
+              "Subscriptions": [
+                {
+                  "Name": "sub-claims-ingestion-member-enrolled",
+                  "Properties": {
+                    "MaxDeliveryCount": 5
+                  },
+                  "Rules": [
+                    {
+                      "Name": "AllMemberEnrolledEvents",
+                      "Properties": {
+                        "FilterType": "SqlFilter",
+                        "SqlFilter": {
+                          "Expression": "EventType = 'MemberEnrolled'"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "Name": "claim-events",
+              "Properties": {
+                "DefaultMessageTimeToLive": "PT1H"
+              },
+              "Subscriptions": [
+                {
+                  "Name": "sub-adjudication-claim-received",
+                  "Properties": {
+                    "MaxDeliveryCount": 5
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

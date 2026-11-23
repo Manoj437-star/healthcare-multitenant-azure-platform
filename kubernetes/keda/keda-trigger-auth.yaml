@@ -1,0 +1,9 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: azure-servicebus-auth
+  namespace: platform-shared
+spec:
+  podIdentity:
+    provider: azure-workload
+    identityId: "${KEDA_WORKLOAD_IDENTITY_CLIENT_ID}"

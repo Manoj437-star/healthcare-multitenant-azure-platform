@@ -1,0 +1,32 @@
+[
+    {
+        "TenantId":  "tenant-a",
+        "TenantName":  "Payer Alpha Enterprise",
+        "Environment":  "dev",
+        "DatabaseTier":  "Dedicated",
+        "DatabaseName":  "tenant-a-db",
+        "AdminEmail":  "admin@payer-alpha.com",
+        "EntraAppId":  "11111111-2222-3333-4444-555555555555",
+        "OnboardedAtUtc":  "2026-11-18T18:00:00.000Z"
+    },
+    {
+        "TenantId":  "tenant-b",
+        "TenantName":  "Payer Beta Standard",
+        "Environment":  "dev",
+        "DatabaseTier":  "Pooled",
+        "DatabaseName":  "shared-payers-db",
+        "AdminEmail":  "admin@payer-beta.com",
+        "EntraAppId":  "66666666-7777-8888-9999-000000000000",
+        "OnboardedAtUtc":  "2026-11-18T18:30:00.000Z"
+    },
+    {
+        "TenantId":  "tenant-c",
+        "TenantName":  "Horizon Health",
+        "Environment":  "dev",
+        "DatabaseTier":  "Dedicated",
+        "DatabaseName":  "tenant-c-db",
+        "AdminEmail":  "admin@horizonhealth.com",
+        "EntraAppId":  "1a2bf814-ad7b-45b9-a66d-f6be2baa3eb3",
+        "OnboardedAtUtc":  "2026-11-19T08:00:04.2433444Z"
+    }
+]

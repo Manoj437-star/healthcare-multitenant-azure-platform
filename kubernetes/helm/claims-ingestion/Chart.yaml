@@ -1,0 +1,15 @@
+apiVersion: v2
+name: claims-ingestion
+description: Helm chart for Healthcare Multi-Tenant Claims Ingestion Service
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - healthcare
+  - multi-tenant
+  - claims-ingestion
+  - hipaa
+  - keda
+maintainers:
+  - name: Platform Engineering Team
+    email: devops@healthcare-platform.internal

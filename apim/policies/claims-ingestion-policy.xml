@@ -1,0 +1,81 @@
+<!--
+================================================================================
+CLAIMS INGESTION API POLICY: Token Validation, Anti-Spoofing, Rate Limiting & Routing
+================================================================================
+-->
+<policies>
+    <inbound>
+        <base />
+
+        <!-- 1. Validate Microsoft Entra ID JWT Token -->
+        <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized: Claims ingestion requires authenticated tenant credentials.">
+            <openid-config url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration" />
+            <audiences>
+                <audience>api://healthcare-multitenant-platform</audience>
+            </audiences>
+            <issuers>
+                <issuer>https://login.microsoftonline.com/{azure-tenant-id}/v2.0</issuer>
+                <issuer>https://sts.windows.net/{azure-tenant-id}/</issuer>
+            </issuers>
+            <required-claims>
+                <claim name="tenant_id" match="any">
+                    <value>tenant-a</value>
+                    <value>tenant-b</value>
+                </claim>
+            </required-claims>
+        </validate-jwt>
+
+        <!-- 2. Extract Authenticated Tenant ID -->
+        <set-variable name="authenticatedTenantId" value="@(context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;,&quot;&quot;).AsJwt()?.Claims.GetValueOrDefault(&quot;tenant_id&quot;, &quot;&quot;))" />
+
+        <choose>
+            <when condition="@(string.IsNullOrEmpty((string)context.Variables[&quot;authenticatedTenantId&quot;]))">
+                <set-variable name="authenticatedTenantId" value="@(context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;,&quot;&quot;).AsJwt()?.Claims.GetValueOrDefault(&quot;tid&quot;, &quot;&quot;))" />
+            </when>
+        </choose>
+
+        <!-- 3. ANTI-SPOOFING VERIFICATION -->
+        <choose>
+            <when condition="@(context.Request.Headers.ContainsKey(&quot;X-Tenant-ID&quot;))">
+                <set-variable name="headerTenantId" value="@(context.Request.Headers.GetValueOrDefault(&quot;X-Tenant-ID&quot;).Trim().ToLowerInvariant())" />
+                <choose>
+                    <when condition="@(!string.Equals((string)context.Variables[&quot;headerTenantId&quot;], (string)context.Variables[&quot;authenticatedTenantId&quot;], StringComparison.OrdinalIgnoreCase))">
+                        <return-response>
+                            <set-status code="403" reason="Forbidden" />
+                            <set-header name="Content-Type" exists-action="override">
+                                <value>application/json</value>
+                            </set-header>
+                            <set-body>@{
+                                return System.Text.Json.JsonSerializer.Serialize(new {
+                                    error = "Forbidden",
+                                    message = "Security Violation: Tenant specified in 'X-Tenant-ID' header does not match authenticated identity.",
+                                    correlationId = context.Request.Headers.GetValueOrDefault("X-Correlation-ID")
+                                });
+                            }</set-body>
+                        </return-response>
+                    </when>
+                </choose>
+            </when>
+            <otherwise>
+                <set-header name="X-Tenant-ID" exists-action="override">
+                    <value>@((string)context.Variables[&quot;authenticatedTenantId&quot;])</value>
+                </set-header>
+            </otherwise>
+        </choose>
+
+        <!-- 4. Per-Tenant Distributed Rate Limiting (1,000 calls / 60 seconds per tenant) -->
+        <rate-limit-by-key calls="1000" renewal-period="60" counter-key="@((string)context.Variables[&quot;authenticatedTenantId&quot;])" retry-after-header-name="Retry-After" />
+
+        <!-- 5. Route to Claims Ingestion Cluster Service -->
+        <set-backend-service base-url="http://claims-ingestion.platform-shared.svc.cluster.local:8080" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

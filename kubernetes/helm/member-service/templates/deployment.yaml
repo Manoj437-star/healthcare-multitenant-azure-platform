@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: member-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: member-service
+    tenant: {{ .Values.tenantId }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: member-service
+      tenant: {{ .Values.tenantId }}
+  template:
+    metadata:
+      labels:
+        app: member-service
+        tenant: {{ .Values.tenantId }}
+        azure.workload.identity/use: "true"
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: member-service
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: member-service-config
+          {{- if .Values.keyVaultCsi.enabled }}
+          env:
+            - name: ConnectionStrings__MemberDbConnection
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keyVaultCsi.secretName }}
+                  key: ConnectionStrings__MemberDbConnection
+            - name: ConnectionStrings__ServiceBusConnection
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keyVaultCsi.secretName }}
+                  key: ConnectionStrings__ServiceBusConnection
+                  optional: true
+          volumeMounts:
+            - name: secrets-store-inline
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+            - name: tmp-dir
+              mountPath: "/tmp"
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+      {{- if .Values.keyVaultCsi.enabled }}
+      volumes:
+        - name: secrets-store-inline
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ .Values.keyVaultCsi.secretProviderClassName }}
+        - name: tmp-dir
+          emptyDir: {}
+      {{- end }}

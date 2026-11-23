@@ -1,0 +1,138 @@
+version: '3.8'
+
+networks:
+  healthcare-network:
+    driver: bridge
+
+volumes:
+  sqlserver-data:
+  prometheus-data:
+  grafana-data:
+
+services:
+  # -------------------------------------------------------------
+  # 1. SQL Server for Local Development
+  # -------------------------------------------------------------
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: healthcare-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=HealthcareStrongP@ss2026!
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    networks:
+      - healthcare-network
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'HealthcareStrongP@ss2026!' -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # -------------------------------------------------------------
+  # 2. Azure Service Bus Local Emulator
+  # -------------------------------------------------------------
+  servicebus-emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    container_name: healthcare-servicebus-emulator
+    volumes:
+      - ./servicebus-emulator/Config.json:/ServiceBus-Emulator/ConfigFiles/Config.json
+    ports:
+      - "5672:5672"
+    environment:
+      - SQL_SERVER=sqlserver
+      - MSSQL_SA_PASSWORD=HealthcareStrongP@ss2026!
+      - ACCEPT_EULA=Y
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - healthcare-network
+
+  # -------------------------------------------------------------
+  # 3. Member Service
+  # -------------------------------------------------------------
+  member-service:
+    build:
+      context: ../src/MemberService
+      dockerfile: Dockerfile
+    container_name: healthcare-member-service
+    ports:
+      - "5001:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__MemberDbConnection=Server=sqlserver,1433;Database=MemberDb;User Id=sa;Password=HealthcareStrongP@ss2026!;TrustServerCertificate=True;Encrypt=False;
+      - EventBus__Provider=InMemory
+      - Serilog__MinimumLevel__Default=Information
+      - EnableSwagger=true
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - healthcare-network
+
+  # -------------------------------------------------------------
+  # 4. Claims Ingestion Service
+  # -------------------------------------------------------------
+  claims-ingestion-service:
+    build:
+      context: ../src/ClaimsIngestionService
+      dockerfile: Dockerfile
+    container_name: healthcare-claims-ingestion
+    ports:
+      - "5002:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Database__UseInMemory=true
+      - EventBus__Provider=InMemory
+      - Serilog__MinimumLevel__Default=Information
+      - EnableSwagger=true
+    depends_on:
+      - member-service
+    networks:
+      - healthcare-network
+
+  # -------------------------------------------------------------
+  # 5. Prometheus Observability
+  # -------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: healthcare-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - healthcare-network
+
+  # -------------------------------------------------------------
+  # 6. Grafana Dashboards
+  # -------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: healthcare-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-HealthcareSecureGrafana2026!}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ../monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ../monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ../monitoring/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - healthcare-network

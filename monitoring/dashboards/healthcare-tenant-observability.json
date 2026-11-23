@@ -1,0 +1,204 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Tenant Overview & Health Indicators",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "title": "Claims Processed per Hour (by Tenant)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "unit": "reqps"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant_id) (rate(claims_processed_total{tenant_id=~\"$tenant_id\"}[1h])) * 3600",
+          "legendFormat": "{{tenant_id}} - Claims/hr",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Claims Processing Error Rate (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line"
+          },
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1.0 },
+              { "color": "red", "value": 5.0 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "(sum by (tenant_id) (rate(claims_failed_total{tenant_id=~\"$tenant_id\"}[5m])) / sum by (tenant_id) (rate(claims_processed_total{tenant_id=~\"$tenant_id\"}[5m]))) * 100",
+          "legendFormat": "{{tenant_id}} - Error Rate %",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "id": 101,
+      "title": "API Gateway & Microservice Latency",
+      "type": "row"
+    },
+    {
+      "id": 3,
+      "title": "API Request Count (Calls/sec)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "targets": [
+        {
+          "expr": "sum by (service, tenant_id) (rate(http_requests_received_total{tenant_id=~\"$tenant_id\"}[1m]))",
+          "legendFormat": "{{service}} ({{tenant_id}})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "p95 & p99 Latency by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, endpoint) (rate(http_request_duration_seconds_bucket{tenant_id=~\"$tenant_id\"}[5m]))) * 1000",
+          "legendFormat": "p95 - {{endpoint}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, endpoint) (rate(http_request_duration_seconds_bucket{tenant_id=~\"$tenant_id\"}[5m]))) * 1000",
+          "legendFormat": "p99 - {{endpoint}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "id": 102,
+      "title": "Messaging Backlog & Cluster Resources",
+      "type": "row"
+    },
+    {
+      "id": 5,
+      "title": "Service Bus Message Backlog (Queue / Subscription Lag)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (entity_name) (azure_servicebus_active_messages)",
+          "legendFormat": "{{entity_name}} - Active Backlog",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Pod Restarts (by Namespace / Tenant)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "targets": [
+        {
+          "expr": "sum by (namespace, pod) (changes(kube_pod_status_ready{condition=\"true\", namespace=~\"$tenant_id|platform-shared\"}[1h]))",
+          "legendFormat": "{{namespace}} / {{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "CPU & Memory Utilization (by Tenant Namespace)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (namespace) (node_namespace_pod_container:container_cpu_usage_seconds_total:sum_rate{namespace=~\"$tenant_id\"}) / sum by (namespace) (kube_pod_container_resource_limits{resource=\"cpu\", namespace=~\"$tenant_id\"}) * 100",
+          "legendFormat": "CPU % - {{namespace}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (namespace) (container_memory_working_set_bytes{namespace=~\"$tenant_id\"}) / sum by (namespace) (kube_pod_container_resource_limits{resource=\"memory\", namespace=~\"$tenant_id\"}) * 100",
+          "legendFormat": "Memory % - {{namespace}}",
+          "refId": "B"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["healthcare", "multi-tenant", "hipaa", "claims", "payer"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "name": "tenant_id",
+        "label": "Tenant Filter",
+        "type": "custom",
+        "options": [
+          { "selected": true, "text": "All Tenants", "value": ".*" },
+          { "selected": false, "text": "tenant-a", "value": "tenant-a" },
+          { "selected": false, "text": "tenant-b", "value": "tenant-b" }
+        ],
+        "query": "tenant-a,tenant-b,.*"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "title": "Healthcare Multi-Tenant Platform Observability",
+  "uid": "healthcare-multitenant-obs"
+}

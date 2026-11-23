@@ -1,0 +1,212 @@
+name: Healthcare Platform CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, release/* ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  id-token: write # Required for Microsoft Entra ID OIDC Federation
+  contents: read
+  security-events: write
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  ACR_NAME: 'acrhealthcareplatformdev'
+  AKS_CLUSTER_NAME: 'aks-healthcare-platform-dev'
+  RESOURCE_GROUP: 'rg-healthcare-platform-dev'
+  MEMBER_SERVICE_IMAGE: 'acrhealthcareplatformdev.azurecr.io/member-service'
+  CLAIMS_INGESTION_IMAGE: 'acrhealthcareplatformdev.azurecr.io/claims-ingestion-service'
+
+jobs:
+  # =========================================================================
+  # STAGE 1: BUILD & TEST MICROSERVICES
+  # =========================================================================
+  build-and-test:
+    name: Build, Lint & Test (.NET 8)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore Dependencies
+        run: dotnet restore HealthcarePlatform.sln
+
+      - name: Code Quality & Formatting Check
+        run: dotnet format --verify-no-changes --verbosity normal HealthcarePlatform.sln
+
+      - name: Build Solution
+        run: dotnet build --no-restore --configuration Release HealthcarePlatform.sln
+
+      - name: Run Unit & Integration Tests
+        run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage" HealthcarePlatform.sln
+
+  # =========================================================================
+  # STAGE 2: CONTAINER BUILD & VULNERABILITY SCANNING
+  # =========================================================================
+  container-build-scan:
+    name: Build & Security Scan Containers
+    needs: build-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build Member Service
+      - name: Build Member Service Docker Image
+        run: |
+          docker build \
+            -t ${{ env.MEMBER_SERVICE_IMAGE }}:${{ github.sha }} \
+            -t ${{ env.MEMBER_SERVICE_IMAGE }}:latest \
+            -f src/MemberService/Dockerfile \
+            src/MemberService
+
+      # Scan Member Service with Trivy
+      - name: Run Trivy Vulnerability Scanner (Member Service)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.MEMBER_SERVICE_IMAGE }}:${{ github.sha }}
+          format: 'table'
+          exit-code: '0' # Alert without breaking build on low severity
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # Build Claims Ingestion Service
+      - name: Build Claims Ingestion Service Docker Image
+        run: |
+          docker build \
+            -t ${{ env.CLAIMS_INGESTION_IMAGE }}:${{ github.sha }} \
+            -t ${{ env.CLAIMS_INGESTION_IMAGE }}:latest \
+            -f src/ClaimsIngestionService/Dockerfile \
+            src/ClaimsIngestionService
+
+      # Scan Claims Ingestion with Trivy
+      - name: Run Trivy Vulnerability Scanner (Claims Ingestion)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.CLAIMS_INGESTION_IMAGE }}:${{ github.sha }}
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+  # =========================================================================
+  # STAGE 3: VALIDATE KUBERNETES MANIFESTS & HELM CHARTS
+  # =========================================================================
+  validate-k8s:
+    name: Validate Helm & Kubernetes Manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Lint Member Service Helm Chart
+        run: helm lint kubernetes/helm/member-service
+
+      - name: Lint Claims Ingestion Helm Chart
+        run: helm lint kubernetes/helm/claims-ingestion
+
+      - name: Dry-run Template Member Service (Tenant-A)
+        run: helm template member-service kubernetes/helm/member-service -f kubernetes/helm/values-tenant-a.yaml > /dev/null
+
+      - name: Dry-run Template Member Service (Tenant-B)
+        run: helm template member-service kubernetes/helm/member-service -f kubernetes/helm/values-tenant-b.yaml > /dev/null
+
+      - name: Dry-run Template Claims Ingestion Service
+        run: helm template claims-ingestion kubernetes/helm/claims-ingestion > /dev/null
+
+  # =========================================================================
+  # STAGE 4: PUBLISH TO ACR & DEPLOY TO AKS (MAIN BRANCH ONLY)
+  # =========================================================================
+  deploy-dev:
+    name: Deploy to AKS Dev Environment
+    if: github.ref == 'refs/heads/main'
+    needs: [container-build-scan, validate-k8s]
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Passwordless Authentication via Microsoft Entra ID OIDC
+      - name: Azure CLI Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to Azure Container Registry
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Push Images to ACR
+        run: |
+          docker push ${{ env.MEMBER_SERVICE_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.MEMBER_SERVICE_IMAGE }}:latest
+          docker push ${{ env.CLAIMS_INGESTION_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.CLAIMS_INGESTION_IMAGE }}:latest
+
+      - name: Get AKS Credentials
+        run: az aks get-credentials --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }} --overwrite-existing
+
+      - name: Apply Namespaces & NetworkPolicies
+        run: |
+          kubectl apply -f kubernetes/namespaces/namespaces.yaml
+          kubectl apply -f kubernetes/network-policies/tenant-network-policies.yaml
+
+      - name: Deploy Member Service to Tenant-A
+        run: |
+          helm upgrade --install member-service-tenant-a kubernetes/helm/member-service \
+            --namespace tenant-a \
+            -f kubernetes/helm/values-tenant-a.yaml \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout 300s
+
+      - name: Deploy Member Service to Tenant-B
+        run: |
+          helm upgrade --install member-service-tenant-b kubernetes/helm/member-service \
+            --namespace tenant-b \
+            -f kubernetes/helm/values-tenant-b.yaml \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout 300s
+
+      - name: Deploy Claims Ingestion Service to platform-shared
+        run: |
+          helm upgrade --install claims-ingestion kubernetes/helm/claims-ingestion \
+            --namespace platform-shared \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout 300s
+
+      - name: Apply KEDA ScaledObjects
+        run: |
+          kubectl apply -f kubernetes/keda/keda-trigger-auth.yaml
+          kubectl apply -f kubernetes/keda/claims-ingestion-scaledobject.yaml
+
+      # Smoke Tests
+      - name: Execute In-Cluster Smoke Tests
+        run: |
+          kubectl rollout status deployment/member-service -n tenant-a --timeout=120s
+          kubectl rollout status deployment/member-service -n tenant-b --timeout=120s
+          kubectl rollout status deployment/claims-ingestion -n platform-shared --timeout=120s
+          echo "All deployments are healthy and live!"

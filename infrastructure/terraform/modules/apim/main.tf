@@ -1,0 +1,22 @@
+resource "azurerm_api_management" "apim" {
+  name                = var.apim_name
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  publisher_name      = var.publisher_name
+  publisher_email     = var.publisher_email
+  sku_name            = var.sku_name
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  tags = var.tags
+}
+
+output "apim_id" {
+  value = azurerm_api_management.apim.id
+}
+
+output "gateway_url" {
+  value = azurerm_api_management.apim.gateway_url
+}

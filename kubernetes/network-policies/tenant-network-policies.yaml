@@ -1,0 +1,142 @@
+# -------------------------------------------------------------------------
+# Default Deny All Ingress & Egress for tenant-a
+# -------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: tenant-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# -------------------------------------------------------------------------
+# Default Deny All Ingress & Egress for tenant-b
+# -------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: tenant-b
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# -------------------------------------------------------------------------
+# Tenant-A Strict Network Policy: Allows Ingress from Ingress Gateway, DNS, and Azure PaaS
+# STRICT ZERO TRUST: Never allows communication to tenant-b namespace
+# -------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-a-isolation-policy
+  namespace: tenant-a
+spec:
+  podSelector:
+    matchLabels:
+      tenant: tenant-a
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress strictly from Ingress Controller or APIM Gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              role: ingress
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow Prometheus monitoring scrape
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # 1. Allow internal DNS resolution
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. Allow egress to Azure PaaS via Private Endpoints (SQL, Service Bus, Cosmos)
+    # Excludes RFC 1918 pods in tenant-b!
+    - to:
+        - ipBlock:
+            cidr: 10.240.0.0/16 # Azure PaaS Private Endpoint Subnet
+      ports:
+        - protocol: TCP
+          port: 1433 # Azure SQL
+        - protocol: TCP
+          port: 5671 # Azure Service Bus AMQP/TLS
+        - protocol: TCP
+          port: 443  # Azure HTTPS / Key Vault / Cosmos DB
+---
+# -------------------------------------------------------------------------
+# Tenant-B Strict Network Policy
+# STRICT ZERO TRUST: Never allows communication to tenant-a namespace
+# -------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-b-isolation-policy
+  namespace: tenant-b
+spec:
+  podSelector:
+    matchLabels:
+      tenant: tenant-b
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              role: ingress
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 10.240.0.0/16
+      ports:
+        - protocol: TCP
+          port: 1433
+        - protocol: TCP
+          port: 5671
+        - protocol: TCP
+          port: 443

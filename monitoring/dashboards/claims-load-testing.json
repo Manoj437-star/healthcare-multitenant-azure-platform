@@ -1,0 +1,223 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Throughput & Rate Metrics",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "title": "Requests per Second (by Tenant)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant_id) (rate(http_requests_received_total{service=\"claims-ingestion\"}[15s]))",
+          "legendFormat": "{{tenant_id}} - RPS",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Claims Processed per Minute",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(claims_submitted_total[1m])) * 60",
+          "legendFormat": "Actual Claims/min",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "id": 101,
+      "title": "Latency SLAs & Error Distribution",
+      "type": "row"
+    },
+    {
+      "id": 3,
+      "title": "Ingestion Latency Percentiles (p50, p95, p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"claims-ingestion\"}[1m]))) * 1000",
+          "legendFormat": "p50 (Median)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"claims-ingestion\"}[1m]))) * 1000",
+          "legendFormat": "p95 Latency",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"claims-ingestion\"}[1m]))) * 1000",
+          "legendFormat": "p99 Latency",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "HTTP Error Statuses (4xx & 5xx)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "targets": [
+        {
+          "expr": "sum by (status_code) (rate(http_requests_received_total{status_code=~\"4..|5..\"}[15s]))",
+          "legendFormat": "HTTP {{status_code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "id": 102,
+      "title": "Service Bus Backlog & KEDA Autoscaling Dynamics",
+      "type": "row"
+    },
+    {
+      "id": 5,
+      "title": "Service Bus Active Backlog vs Dead-Letter Count",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "targets": [
+        {
+          "expr": "azure_servicebus_subscription_active_messages{subscription=\"sub-claims-ingestion-member-enrolled\"}",
+          "legendFormat": "Active Subscription Backlog",
+          "refId": "A"
+        },
+        {
+          "expr": "azure_servicebus_subscription_deadletter_messages{subscription=\"sub-claims-ingestion-member-enrolled\"}",
+          "legendFormat": "DLQ Poison Messages",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "KEDA Active Pod Replicas (Scale-Out / Scale-In)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "max": 25 }
+      },
+      "targets": [
+        {
+          "expr": "kube_deployment_status_replicas{deployment=\"claims-ingestion\", namespace=\"platform-shared\"}",
+          "legendFormat": "Current Pod Replicas",
+          "refId": "A"
+        },
+        {
+          "expr": "keda_scaler_active{scaledObject=\"claims-ingestion-keda-scaler\"}",
+          "legendFormat": "KEDA Scaler Trigger Active (1/0)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "id": 103,
+      "title": "Compute Utilization (CPU & Memory)",
+      "type": "row"
+    },
+    {
+      "id": 7,
+      "title": "Ingestion Pod CPU Utilization (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "fieldConfig": {
+        "defaults": { "unit": "percent" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(container_cpu_usage_seconds_total{container=\"claims-ingestion\"}[1m])) / sum(kube_pod_container_resource_limits{resource=\"cpu\", container=\"claims-ingestion\"}) * 100",
+          "legendFormat": "Claims Ingestion CPU %",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Ingestion Pod Memory Working Set (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "fieldConfig": {
+        "defaults": { "unit": "percent" }
+      },
+      "targets": [
+        {
+          "expr": "sum(container_memory_working_set_bytes{container=\"claims-ingestion\"}) / sum(kube_pod_container_resource_limits{resource=\"memory\", container=\"claims-ingestion\"}) * 100",
+          "legendFormat": "Claims Ingestion Memory %",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "id": 104,
+      "title": "Cosmos DB Request Units (RU) & Throttling",
+      "type": "row"
+    },
+    {
+      "id": 9,
+      "title": "Cosmos DB Consumed RUs / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 37 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(azure_cosmosdb_total_request_units[1m]))",
+          "legendFormat": "Total RUs Consumed / sec",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Cosmos DB Throttling Incidents (HTTP 429)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 37 },
+      "targets": [
+        {
+          "expr": "sum(rate(azure_cosmosdb_requests_total{status_code=\"429\"}[1m]))",
+          "legendFormat": "429 Throttle Count / sec",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "tags": ["performance", "k6", "keda", "cosmos", "load-testing"],
+  "time": { "from": "now-30m", "to": "now" },
+  "title": "Claims Ingestion Performance & KEDA Scaler Dashboard",
+  "uid": "claims-load-testing"
+}

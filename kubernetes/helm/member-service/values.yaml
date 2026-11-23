@@ -1,0 +1,81 @@
+replicaCount: 2
+
+image:
+  repository: acrhealthcareplatformdev.azurecr.io/member-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+tenantId: "default"
+environment: "dev"
+
+serviceAccount:
+  create: true
+  name: "member-service-sa"
+  annotations:
+    azure.workload.identity/client-id: ""
+
+podAnnotations: {}
+podLabels:
+  app: member-service
+  tenant: "default"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+keyVaultCsi:
+  enabled: true
+  secretProviderClassName: "azure-kv-secrets-provider"
+  secretName: "tenant-app-secrets"
+
+config:
+  eventBusProvider: "ServiceBus"
+  enableSwagger: false

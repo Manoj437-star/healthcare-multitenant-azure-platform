@@ -1,0 +1,11 @@
+environment         = "dev"
+location            = "eastus"
+resource_group_name = "rg-healthcare-platform-dev"
+sql_admin_password  = "ChangeThisSecurePassword123!"
+
+tags = {
+  Project     = "Healthcare-MultiTenant-Platform"
+  Environment = "dev"
+  ManagedBy   = "Terraform"
+  Compliance  = "HIPAA-Aligned"
+}

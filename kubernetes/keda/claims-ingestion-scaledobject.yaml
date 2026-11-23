@@ -1,0 +1,53 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: claims-ingestion-keda-scaler
+  namespace: platform-shared
+  labels:
+    app: claims-ingestion
+    autoscaling: keda-event-driven
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: claims-ingestion
+  minReplicaCount: 2
+  maxReplicaCount: 20
+  pollingInterval: 15
+  cooldownPeriod: 300
+  advanced:
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+            - type: Pods
+              value: 4
+              periodSeconds: 15
+          selectPolicy: Max
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 20
+              periodSeconds: 60
+  triggers:
+    # 1. Primary Event-Driven Trigger: Azure Service Bus Subscription Backlog
+    - type: azure-servicebus
+      metadata:
+        namespace: asb-healthcare-platform-dev
+        topicName: member-events
+        subscriptionName: sub-claims-ingestion-member-enrolled
+        messageCount: "50" # Target 50 backlog messages per active pod replica
+      authenticationRef:
+        name: azure-servicebus-auth
+
+    # 2. Secondary Metric Trigger: CPU Utilization fallback
+    - type: cpu
+      metadata:
+        type: Utilization
+        value: "75"
